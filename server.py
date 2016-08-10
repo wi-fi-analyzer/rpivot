@@ -9,6 +9,9 @@ from struct import pack, unpack
 import struct
 import random
 import errno
+import argparse
+
+
 
 socks_server_reply_success = '\x00\x5a\xff\xff\xff\xff\xff\xff'
 socks_server_reply_fail = '\x00\x5b\xff\xff\xff\xff\xff\xff'
@@ -160,6 +163,7 @@ class TheServer:
             raise RelayError
         if vn != 4:
             logger.debug('Invalid socks header! Got data: {}'.format(repr(data)))
+            raise RelayError
         str_ip = socket.inet_ntoa(pack(">L", dstip))
         logger.debug('Socks version: {} Socks command: {} Dstport: {} Dstip: {}'.format(vn, cd, dstport, str_ip))
         return str_ip, dstport
@@ -408,7 +412,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         #print self.data
         # just send back the same data, but upper-cased
         #self.request.sendall(self.data.upper())
-        server = TheServer('', 1080, self.request)
+        server = TheServer(cmd_options.proxy_ip, cmd_options.proxy_port, self.request)
         try:
             print 'before server loop'
             server.main_loop()
@@ -419,17 +423,28 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
 
 if __name__ == "__main__":
     global logger
+    global cmd_options
+    parser = argparse.ArgumentParser(description='Reverse socks server')
+
+    parser.add_argument('--server_ip', action="store", dest='server_ip', default='0.0.0.0')
+    parser.add_argument('--server_port', action="store", dest='server_port', default=9999)
+    parser.add_argument('--proxy_ip', action="store", dest='proxy_ip', default='127.0.0.1')
+    parser.add_argument('--proxy_port', action="store", dest='proxy_port', default=1080)
+
+
+    cmd_options = parser.parse_args()
+
     logger = logging.getLogger('root')
     logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
     logger.addHandler(ch)
 
-    HOST, PORT = "0.0.0.0", 9999
+
 
     # Create the server, binding to localhost on port 9999
     SocketServer.TCPServer.allow_reuse_address = True
-    server = SocketServer.TCPServer((HOST, PORT), MyTCPHandler)
+    server = SocketServer.TCPServer((cmd_options.server_ip, cmd_options.server_port), MyTCPHandler)
 
     # Activate the server; this will keep running until you
     # interrupt the program with Ctrl-C

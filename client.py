@@ -6,6 +6,7 @@ import time
 from struct import pack, unpack
 import struct
 import select
+import argparse
 import errno
 
 
@@ -57,7 +58,7 @@ class SocksRelay:
         while True:
             time.sleep(delay)
             logger.debug('Trying select')
-            logger.debug("Channels: {}. Pending Channels {}".format(self.channel.keys(), self.establishing_dict.values()))
+            logger.debug("Number of channels {} channels: {}. Pending Channels {}".format(len(self.channel.keys()), self.channel.keys(), self.establishing_dict.values()))
             inputready, outputready, exceptready = select.select(self.input_list, self.establishing_dict.keys(), [])
             for sock in outputready:
                 channel_id = self.establishing_dict[sock]
@@ -346,14 +347,21 @@ def main():
 
     # Add the log message handler to the logger
     global logger
+
+    parser = argparse.ArgumentParser(description='Reverse socks client')
+
+    parser.add_argument('--server_ip', required=True, action="store", dest='server_ip')
+    parser.add_argument('--server_port', action="store", dest='server_port', default=9999)
+    cmd_options = parser.parse_args()
+
     logger = logging.getLogger('root')
     logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
     logger.addHandler(ch)
 
-    backconnect_host = '127.0.0.1'
-    backconnect_port = 9999
+    backconnect_host = cmd_options.server_ip
+    backconnect_port = cmd_options.server_port
     bc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     bc_sock.connect((backconnect_host, backconnect_port))
     logger.debug('Backconnecting to server')
