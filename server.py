@@ -6,7 +6,9 @@ import select
 import sys
 import time
 from struct import pack, unpack
+import struct
 import random
+import errno
 
 socks_server_reply_success = '\x00\x5a\xff\xff\xff\xff\xff\xff'
 socks_server_reply_fail = '\x00\x5b\xff\xff\xff\xff\xff\xff'
@@ -91,7 +93,11 @@ class Forward:
             return False
 '''
 
+
 class ClosedSocket(Exception):
+    pass
+
+class RelayError(Exception):
     pass
 
 
@@ -106,7 +112,7 @@ class TheServer:
         self.FORWARD_CONNECTION_SUCCESS = '\xee'
         self.FORWARD_CONNECTION_FAILURE = '\xff'
         self.channel = {}
-        self.id_by_socket =  {}
+        self.id_by_socket = {}
         self.socket_with_server = socket_with_server
         self.input_list.append(self.socket_with_server)
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -120,13 +126,13 @@ class TheServer:
         while True:
             time.sleep(delay)
             try:
-                print 'before select'
-                print 'input list:'
-                print self.input_list
+                #print self.input_list
+                logger.debug("Trying select")
+                logger.debug("Channels: {}".format(self.channel.keys()))
                 inputready, outputready, exceptready = select.select(self.input_list, [], [])
-            except socket.error, e:
-                print 'Socket error', e
-                print 'exiting main loop'
+            except socket.error as (code, msg):
+                logger.debug('Socket error on select. Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
+
                 return
             for self.selected_input_socket in inputready:
                 if self.selected_input_socket == self.server:
@@ -141,14 +147,19 @@ class TheServer:
                 elif self.selected_input_socket in self.id_by_socket:
                     self.manage_socks_client_socket(self.selected_input_socket)
                 else:
-                    logger.debug("Active socket {} does not belong to channel. Exiting".format(self.selected_input_socket))
-                    sys.exit(1)
+                    logger.debug("Active socket {} does not belong to channel. Closing it".format(self.selected_input_socket))
+                    self.selected_input_socket.close()
+
 
     def parse_socks_header(self, data):
-        (vn, cd, dstport, dstip) = unpack('>BBHI', data[:8])
+        logger.debug('Parsing socks header. Data contents : {}'.format(repr(data)))
+        try:
+            (vn, cd, dstport, dstip) = unpack('>BBHI', data[:8])
+        except struct.error:
+            logger.debug('Invalid socks header! Got data: {}'.format(repr(data)))
+            raise RelayError
         if vn != 4:
             logger.debug('Invalid socks header! Got data: {}'.format(repr(data)))
-        logger.debug('Parsing socks header. Data contents : {}'.format(repr(data)))
         str_ip = socket.inet_ntoa(pack(">L", dstip))
         logger.debug('Socks version: {} Socks command: {} Dstport: {} Dstip: {}'.format(vn, cd, dstport, str_ip))
         return str_ip, dstport
@@ -156,8 +167,8 @@ class TheServer:
     def get_channel_data(self, sock):
         # receive tlv header: 1 byte channel id, 2byte length
         tlv_header = sock.recv(3)
-        if tlv_header == 0:
-            raise ClosedSocket('Remote side close connection')
+        if len(tlv_header) == 0:
+            raise ClosedSocket('Remote side closed connection')
         tlv_header_len = len(tlv_header)
         if tlv_header_len != 3:
             logger.debug('Unable to receive tlv header. Exiting. Data contents: {}'.format(tlv_header))
@@ -186,13 +197,22 @@ class TheServer:
 
         if channel_id == self.COMMAND_CHANNEL:
             self.handle_remote_cmd(data)
-        else:
+        elif channel_id in self.channel:
             relay_to_sock = self.channel[channel_id]
             self.relay(data, relay_to_sock)
+        else:
+            logger.debug('Relay from socket {} with channel {} not possible. Channel does not exist'.format(sock, channel_id))
+            return
 
     def manage_socks_client_socket(self, sock):
-        logger.debug('Got data from socket {} with channel id {}'.format(sock, self.id_by_socket[sock]))
-        data = sock.recv(buffer_size)
+        #logger.debug('Got data from socket {} with channel id {}'.format(sock, self.id_by_socket[sock]))
+        try:
+            data = sock.recv(buffer_size)
+        except socket.error as (code, msg):
+            logger.debug('Exception on reading socket {} with channel id {}'.format(sock, self.id_by_socket[sock]))
+            logger.debug('Details: {}, {}'.format(errno.errorcode[code], msg))
+            self.close_socks_connection(sock)
+            return
         data_len = len(data)
         if data_len == 0:
             self.close_socks_connection(sock)
@@ -207,10 +227,16 @@ class TheServer:
         logger.debug('Received cmd data: {}'.format(repr(data)))
         if cmd == self.CHANNEL_CLOSE_CMD:
             channel_id = unpack('B', data[1])[0]
-            sock_to_close = self.channel[channel_id]
-            self.unset_channel(channel_id)
-            logger.debug('Closing socket with id: {}'.format(channel_id))
-            sock_to_close.close()
+            logger.debug('Channel close request with id: {}'.format(channel_id))
+            if channel_id not in self.channel:
+                logger.debug('Channel {} already close'.format(channel_id))
+                return
+            else:
+                sock_to_close = self.channel[channel_id]
+                self.input_list.remove(sock_to_close)
+                self.unset_channel(channel_id)
+                logger.debug('Closing socket {}  with id: {}'.format(sock_to_close, channel_id))
+                sock_to_close.close()
         elif cmd == self.FORWARD_CONNECTION_SUCCESS:
             channel_id = unpack('B', data[1])[0]
             logger.debug('Forward connection successful with id: {}'.format(channel_id))
@@ -242,16 +268,27 @@ class TheServer:
 
     def on_accept(self):
         socks_client_socket, clientaddr = self.server.accept()
-        logger.debug("{} has connected".format(clientaddr))
-        ip, port = self.handle_new_socks_connection(socks_client_socket)
+        logger.debug("Socks client {} has connected".format(clientaddr))
+        try:
+            ip, port = self.handle_new_socks_connection(socks_client_socket)
+        except RelayError:
+            logger.debug("Closing socks client socket {}".format(socks_client_socket))
+            socks_client_socket.close()
+            return
         self.input_list.append(socks_client_socket)
         new_channel_id = self.set_channel(socks_client_socket)
         logger.debug("Sending command to open channel {}".format(new_channel_id))
         self.send_remote_cmd(self.socket_with_server, self.CHANNEL_OPEN_CMD, new_channel_id, ip, port)
 
-
     def handle_new_socks_connection(self, sock):
-        data = sock.recv(buffer_size)
+        try:
+            data = sock.recv(buffer_size)
+        except socket.error as (code, msg):
+            logger.debug('Error receiving socks header {} {}'.format(errno.errorcode[code], msg))
+            raise RelayError
+        if len(data) == 0:
+            logger.debug('Socks client prematurely ended connection')
+            raise RelayError
         return self.parse_socks_header(data)
 
     def set_channel(self, sock):
@@ -279,7 +316,8 @@ class TheServer:
 
     def close_socks_connection(self, sock):
         channel_id = self.id_by_socket[sock]
-        logger.debug('Closing socks client socket {} with id {}\n Notifying remote side'.format(sock, channel_id))
+        logger.debug('Closing socks client socket {} with id {}'.format(sock, channel_id))
+        logger.debug('Notifying remote side')
         self.unset_channel(channel_id)
         self.input_list.remove(sock)
         sock.close()
@@ -299,7 +337,8 @@ class TheServer:
     '''
 
     def close_client_sockets(self):
-        for channel_id, sock in self.channel.iteritems():
+        channel_copy = self.channel.items()
+        for channel_id, sock in channel_copy:
             sock.close()
             del self.channel[channel_id]
             self.input_list.remove(sock)
@@ -332,10 +371,22 @@ class TheServer:
         self.channel[self.s].send(data)
 
     def relay(self, data, to_socket):
-        #logger.debug('Got data to relay. Relaying data: {}\nData length: {}'.format(self.data, len(self.data)))
+        logger.debug('Got data to relay to {}. Data length: {}'.format(to_socket, len(data)))
+        logger.debug('remote side socket at {}'.format(self.socket_with_server))
         if to_socket is None:
             return
-        to_socket.send(data)
+        try:
+            to_socket.send(data)
+        except socket.error as (code, msg):
+            logger.debug('Exception on relaying data to socket {}'.format(to_socket))
+            logger.debug('Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
+            logger.debug('Closing socket')
+            to_socket.close()
+            self.input_list.remove(to_socket)
+            if to_socket != self.socket_with_server:
+                channel_id = self.id_by_socket[to_socket]
+                self.unset_channel(channel_id)
+                self.send_remote_cmd(self.socket_with_server, self.CHANNEL_CLOSE_CMD, channel_id)
 
 
 
