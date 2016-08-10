@@ -170,14 +170,14 @@ class TheServer:
 
     def get_channel_data(self, sock):
         # receive tlv header: 1 byte channel id, 2byte length
-        tlv_header = sock.recv(3)
+        tlv_header = sock.recv(4)
         if len(tlv_header) == 0:
             raise ClosedSocket('Remote side closed connection')
         tlv_header_len = len(tlv_header)
-        if tlv_header_len != 3:
+        if tlv_header_len != 4:
             logger.debug('Unable to receive tlv header. Exiting. Data contents: {}'.format(tlv_header))
             sys.exit(1)
-        channel_id, tlv_data_len = unpack('<BH', tlv_header)
+        channel_id, tlv_data_len = unpack('<HH', tlv_header)
         data = ''
         fail_counter = 0
         while len(data) < tlv_data_len:
@@ -223,14 +223,14 @@ class TheServer:
             return
         else:
             channel_id = self.id_by_socket[sock]
-            tlv_header = pack('<BH', channel_id, len(data))
+            tlv_header = pack('<HH', channel_id, len(data))
             self.relay(tlv_header + data, self.socket_with_server)
 
     def handle_remote_cmd(self, data):
         cmd = data[0]
         logger.debug('Received cmd data: {}'.format(repr(data)))
         if cmd == self.CHANNEL_CLOSE_CMD:
-            channel_id = unpack('B', data[1])[0]
+            channel_id = unpack('<H', data[1:3])[0]
             logger.debug('Channel close request with id: {}'.format(channel_id))
             if channel_id not in self.channel:
                 logger.debug('Channel {} already close'.format(channel_id))
@@ -242,12 +242,12 @@ class TheServer:
                 logger.debug('Closing socket {}  with id: {}'.format(sock_to_close, channel_id))
                 sock_to_close.close()
         elif cmd == self.FORWARD_CONNECTION_SUCCESS:
-            channel_id = unpack('B', data[1])[0]
+            channel_id = unpack('<H', data[1:3])[0]
             logger.debug('Forward connection successful with id: {}'.format(channel_id))
             sock = self.channel[channel_id]
             sock.send(socks_server_reply_success)
         elif cmd == self.FORWARD_CONNECTION_FAILURE:
-            channel_id = unpack('B', data[1])[0]
+            channel_id = unpack('<H', data[1:3])[0]
             logger.debug('Forward connection failed with id: {}'.format(channel_id))
             sock = self.channel[channel_id]
             sock.send(socks_server_reply_fail)
@@ -258,13 +258,13 @@ class TheServer:
     def send_remote_cmd(self, sock, cmd, *args):
         logger.debug('Sending cmd to remote side. Cmd: {}'.format(repr(cmd)))
         if cmd == self.CHANNEL_CLOSE_CMD:
-            cmd_buffer = cmd + pack('B', args[0])
-            tlv_header = pack('<BH', self.COMMAND_CHANNEL, len(cmd_buffer))
+            cmd_buffer = cmd + pack('<H', args[0])
+            tlv_header = pack('<HH', self.COMMAND_CHANNEL, len(cmd_buffer))
             sock.send(tlv_header + cmd_buffer)
         elif cmd == self.CHANNEL_OPEN_CMD:
             channel_id, ip, port = args
-            cmd_buffer = cmd + pack('B',  channel_id) + socket.inet_aton(ip) + pack('<H', port)
-            tlv_header = pack('<BH', self.COMMAND_CHANNEL, len(cmd_buffer))
+            cmd_buffer = cmd + pack('<H',  channel_id) + socket.inet_aton(ip) + pack('<H', port)
+            tlv_header = pack('<HH', self.COMMAND_CHANNEL, len(cmd_buffer))
             sock.send(tlv_header + cmd_buffer)
         else:
             logger.debug('Unknown cmd: {}'.format(cmd))
@@ -309,7 +309,7 @@ class TheServer:
     def generate_new_channel_id(self):
         channel_ids = self.channel.keys()
         while True:
-            rint = random.randint(1, 255)
+            rint = random.randint(1, 65535)
             if rint not in channel_ids:
                 return rint
 

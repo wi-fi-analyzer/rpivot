@@ -153,7 +153,7 @@ class SocksRelay:
         cmd = data[0]
         logger.debug('Received cmd data: {}'.format(repr(data)))
         if cmd == self.CHANNEL_CLOSE_CMD:
-            channel_id = unpack('B', data[1])[0]
+            channel_id = unpack('<H', data[1:3])[0]
             logger.debug('Channel close request with id: {}'.format(channel_id))
             establishing_sock = key_by_value(self.establishing_dict, channel_id)
             if establishing_sock is not None:
@@ -169,8 +169,8 @@ class SocksRelay:
                 sock_to_close.close()
                 self.input_list.remove(sock_to_close)
         elif cmd == self.CHANNEL_OPEN_CMD:
-            channel_id, packed_ip, port = unpack('<BIH', data[1:8])
-            ip = socket.inet_ntoa(data[2:6])
+            channel_id, packed_ip, port = unpack('<HIH', data[1:9])
+            ip = socket.inet_ntoa(data[3:7])
             logger.debug('Got new channel request with id {} . Opening new forward connection to host {} port {}'.format(channel_id, ip, port))
             self.establish_forward_socket(channel_id, ip, port)
         else:
@@ -180,7 +180,7 @@ class SocksRelay:
     def get_channel_data(self, sock):
         # receive tlv header: 1 byte channel id, 2byte length
         try:
-            tlv_header = sock.recv(3)
+            tlv_header = sock.recv(4)
         except socket.error as (code, msg):
             logger.debug('Exception on receiving tlv_header from remote side. Exiting')
             logger.debug('Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
@@ -190,10 +190,10 @@ class SocksRelay:
             logger.debug('Recv on tlv header return no data => remote side unexpectedly closed connection')
             raise ClosedSocket('Exception: remote side unexpectedly closed connection')
         tlv_header_len = len(tlv_header)
-        if tlv_header_len != 3:
+        if tlv_header_len != 4:
             logger.debug('Unable to receive tlv header. Exiting. Data contents: {}. Data len: {}'.format(tlv_header, len(tlv_header)))
             sys.exit(1)
-        channel_id, tlv_data_len = unpack('<BH', tlv_header)
+        channel_id, tlv_data_len = unpack('<HH', tlv_header)
         data = ''
         fail_counter = 0
         while len(data) < tlv_data_len:
@@ -249,7 +249,7 @@ class SocksRelay:
             return
         else:
             channel_id = self.id_by_socket[sock]
-            tlv_header = pack('<BH', channel_id, len(data))
+            tlv_header = pack('<HH', channel_id, len(data))
             self.relay(tlv_header + data, self.bc_sock)
 
     def close_forward_connection(self, sock):
@@ -264,16 +264,16 @@ class SocksRelay:
 
     def send_remote_cmd(self, sock, cmd, *args):
         if cmd == self.CHANNEL_CLOSE_CMD:
-            cmd_buffer = cmd + pack('B', args[0])
-            tlv_header = pack('<BH', self.COMMAND_CHANNEL, len(cmd_buffer))
+            cmd_buffer = cmd + pack('<H', args[0])
+            tlv_header = pack('<HH', self.COMMAND_CHANNEL, len(cmd_buffer))
             sock.send(tlv_header + cmd_buffer)
         elif cmd == self.FORWARD_CONNECTION_SUCCESS:
-            cmd_buffer = cmd + pack('B', args[0])
-            tlv_header = pack('<BH', self.COMMAND_CHANNEL, len(cmd_buffer))
+            cmd_buffer = cmd + pack('<H', args[0])
+            tlv_header = pack('<HH', self.COMMAND_CHANNEL, len(cmd_buffer))
             sock.send(tlv_header + cmd_buffer)
         elif cmd == self.FORWARD_CONNECTION_FAILURE:
-            cmd_buffer = cmd + pack('B', args[0])
-            tlv_header = pack('<BH', self.COMMAND_CHANNEL, len(cmd_buffer))
+            cmd_buffer = cmd + pack('<H', args[0])
+            tlv_header = pack('<HH', self.COMMAND_CHANNEL, len(cmd_buffer))
             sock.send(tlv_header + cmd_buffer)
         else:
             logger.debug('qUnknown cmd: {}'.format(repr(cmd)))
