@@ -324,7 +324,7 @@ class TheServer:
 
         self.input_list.remove(self.socket_with_server)
         self.socket_with_server.close()
-        self.socket_with_server = None
+        #self.socket_with_server = None
         logger.debug('Closing socket with remote client')
 
         try:
