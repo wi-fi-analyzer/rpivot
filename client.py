@@ -9,7 +9,7 @@ import select
 import argparse
 import errno
 import relay
-
+import threading
 
 logger = None
 
@@ -37,7 +37,6 @@ class SocksRelay:
 
 
     def __init__(self, bc_sock):
-
         self.channel = {}
         self.id_by_socket = {}
         self.bc_sock = bc_sock
@@ -45,22 +44,40 @@ class SocksRelay:
         self.establishing_dict = {}
         self.forward_socket = None
         self.data = None
+        self.last_ping_time = time.time()
+        self.ping_thread = threading.Thread(target=self.ping_worker)
+        self.ping_thread.start()
+
+    def ping_worker(self):
+        while True:
+            time.sleep(10)
+            current_time = time.time()
+            logger.debug('In ping worker')
+            if current_time - self.last_ping_time > relay.relay_timeout:
+                logger.info('No response from remote side for {} seconds. Restarting relay'.format(relay.relay_timeout))
+                self.bc_sock.close()
+                return
 
     def run(self):
+        inputready = None
+        outputready = None
+        exceptready = None
         while True:
-            time.sleep(relay.delay)
-            logger.debug('Trying select')
-            logger.debug("Number of channels {} channels: {}. Pending Channels {}".format(len(self.channel.keys()), self.channel.keys(), self.establishing_dict.values()))
+
             try:
-                inputready, outputready, exceptready = select.select(self.input_list, self.establishing_dict.keys(), [])
+                time.sleep(relay.delay)
+                logger.debug('Trying select')
+                logger.debug("Number of channels {} channels: {}. Pending Channels {}".format(len(self.channel.keys()), self.channel.keys(), self.establishing_dict.values()))
+
+                inputready, outputready, exceptready = select.select(self.input_list, self.establishing_dict.keys(), [], 15)
             except KeyboardInterrupt:
                 logger.info('SIGINT received. Closing relay and exiting')
                 self.send_remote_cmd(self.bc_sock, relay.CLOSE_RELAY)
                 self.bc_sock.close()
-                sys.exit(1)
+                sys.close()
             except select.error as (code, msg):
                 logger.debug('Socket error on select. Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
-                sys.exit(1)
+
             for sock in outputready:
                 channel_id = self.establishing_dict[sock]
                 logger.debug('Establishing connection with channel id {}'.format(channel_id))
@@ -96,60 +113,16 @@ class SocksRelay:
                 self.input_list.append(sock)
                 self.set_channel(sock, channel_id)
 
-
             for self.selected_input_socket in inputready:
-                #self.data = self.selected_input_socket.recv(relay.buffer_size)
-                #data_len = len(self.data)
-
                 if self.selected_input_socket == self.bc_sock:
-                    #logger.debug('Remote side socket active')
                     try:
                         self.manage_remote_socket(self.bc_sock)
-                    except relay.ClosedSocket:
+                    except relay.RelayError:
                         logger.debug('Remote side closed socket')
-                    '''
-                    assert(self.selected_input_socket == self.bc_sock)
-                    assert(data_len != 0)
-                    (host, port) = self.parse_socks_header()
-                    connection_status = self.establish_forward_socket(host, port)
-
-                    if connection_status == SocksRelay.STATUS_SUCCESS:
-                        self.on_socks_success()
-                    elif connection_status == SocksRelay.STATUS_REFUSED:
-                        self.on_socks_fail()
-
-                    elif connection_status == SocksRelay.STATUS_TIMEOUT:
-                        self.on_socks_fail()
-                    '''
-
+                        relay.close_sockets(self.input_list)
+                        return
                 else:
-                    #logger.debug('Forward socket {} active with channel id {}'.format(self.selected_input_socket, self.id_by_socket[self.selected_input_socket]))
                     self.manage_forward_socket(self.selected_input_socket)
-                '''
-                elif self.input_list == [self.bc_sock, self.forward_socket]:
-                    if self.selected_input_socket == self.bc_sock:
-                        if data_len == 0:
-                            logger.debug('Server side closed socket. Exiting program')
-                            sys.exit(1)
-                        elif self.data.startswith(eof_marker):
-                            logger.debug('Got eof market. Server side notified us to close current socks connection\n Full data contents: {}\n Length: {}'.format(repr(self.data), len(self.data)))
-                            self.on_server_socks_close()
-                        else:
-                            # generic data - relay it
-                            self.relay(self.forward_socket)
-
-                    elif self.selected_input_socket == self.forward_socket:
-                        if data_len == 0:
-                            logger.debug('Forward connection terminated')
-                            self.on_client_socks_close()
-                        else:
-                            # generic data - relay it
-                            self.relay(self.bc_sock)
-
-                else:
-                    logger.debug('Invalid socket input list! Exiting...')
-                    sys.exit(1)
-                '''
 
     def handle_remote_cmd(self, data):
         cmd = data[0]
@@ -179,40 +152,28 @@ class SocksRelay:
             logger.info('Got command to close relay. Closing socket and exiting.')
             self.bc_sock.close()
             sys.exit(1)
+        elif cmd == relay.PING_CMD:
+            logger.debug('Got ping from remote side. Responding')
+            self.last_ping_time = time.time()
+            self.send_remote_cmd(self.bc_sock, relay.PING_CMD)
         else:
             logger.debug('Received unknown cmd: {}'.format(cmd))
-            sys.exit(1)
+
 
     def get_channel_data(self, sock):
         # receive tlv header: 2 byte channel id, 2byte length
         #tlv_header_len = 4
 
         try:
-            #tlv_header = sock.recv(4, socket.MSG_WAITALL)
             tlv_header = relay.recvall(sock, 4)
+            tlv_header_len = len(tlv_header)
+            channel_id, tlv_data_len = unpack('<HH', tlv_header)
+            data = relay.recvall(sock, tlv_data_len)
         except socket.error as (code, msg):
-            logger.debug('Exception on receiving tlv_header from remote side. Exiting')
+            logger.debug('Exception on receiving tlv message from remote side. Exiting')
             logger.debug('Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
-            sock.close()
-            sys.exit(1)
-        if len(tlv_header) == 0:
-            logger.debug('Recv on tlv header return no data => remote side unexpectedly closed connection')
-            raise relay.ClosedSocket('Exception: remote side unexpectedly closed connection')
+            raise relay.RelayError
 
-        tlv_header_len = len(tlv_header)
-        if tlv_header_len != 4:
-            logger.debug('Unable to receive tlv header. Exiting. Data contents: "{}" Data len: {}'.format(tlv_header, len(tlv_header)))
-            sys.exit(1)
-        channel_id, tlv_data_len = unpack('<HH', tlv_header)
-        data = ''
-        fail_counter = 0
-        while len(data) < tlv_data_len:
-            if fail_counter == 10:
-                logger.debug('Failed to get tlv data after 10 tries. Exiting.')
-                sys.exit()
-            chunk = sock.recv(tlv_data_len - len(data))
-            data += chunk
-            fail_counter += 1
         return channel_id, data
 
     def manage_remote_socket(self, sock):
@@ -220,11 +181,10 @@ class SocksRelay:
         data = None
         try:
             (channel_id, data) = self.get_channel_data(sock)
-        except relay.ClosedSocket:
+        except relay.RelayError:
             logger.debug('Exiting!')
             self.close_remote_connection(sock)
-
-            sys.exit(1)
+            raise relay.RelayError
 
         if channel_id == relay.COMMAND_CHANNEL:
             self.handle_remote_cmd(data)
@@ -289,6 +249,10 @@ class SocksRelay:
             cmd_buffer = cmd
             tlv_header = pack('<HH', relay.COMMAND_CHANNEL, len(cmd_buffer))
             sock.send(tlv_header + cmd_buffer)
+        elif cmd == relay.PING_CMD:
+            cmd_buffer = cmd
+            tlv_header = pack('<HH', relay.COMMAND_CHANNEL, len(cmd_buffer))
+            sock.send(tlv_header + cmd_buffer)
         else:
             logger.debug('qUnknown cmd: {}'.format(repr(cmd)))
             sys.exit(1)
@@ -343,42 +307,24 @@ def main():
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
     logger.addHandler(ch)
+    while True:
+        logger.info('Backconnecting to server {} port {}'.format(cmd_options.server_ip, cmd_options.server_port))
+        backconnect_host = cmd_options.server_ip
+        backconnect_port = int(cmd_options.server_port)
+        bc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        while True:
 
-    backconnect_host = cmd_options.server_ip
-    backconnect_port = int(cmd_options.server_port)
-    bc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        bc_sock.connect((backconnect_host, backconnect_port))
-    except socket.error as (code, msg):
-        logger.info('Unable to connect to {} port: {}'.format(cmd_options.server_ip, msg))
-        sys.exit(1)
-    logger.info('Backconnecting to server {} port {}'.format(cmd_options.server_ip, cmd_options.server_port))
-    socks_relayer = SocksRelay(bc_sock)
-    socks_relayer.run()
+            try:
+                bc_sock.connect((backconnect_host, backconnect_port))
+                break
+            except socket.error as (code, msg):
+                logger.info('Unable to connect to {} port: {}'.format(cmd_options.server_ip, msg))
+                logger.info('Retrying')
+                time.sleep(5)
 
+        socks_relayer = SocksRelay(bc_sock)
+        socks_relayer.run()
+        time.sleep(10)
 
 if __name__ == '__main__':
-
     main()
-
-'''
-def main():
-    HOST, PORT = "localhost", 9999
-    data = "ololo data"
-
-    # Create a socket (SOCK_STREAM means a TCP socket)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    try:
-        # Connect to server and send data
-        sock.connect((HOST, PORT))
-        sock.sendall(data + "\n")
-
-        # Receive data from the server and shut down
-        received = sock.recv(1024)
-    finally:
-        sock.close()
-
-    print "Sent:     {}".format(data)
-    print "Received: {}".format(received)
-'''
