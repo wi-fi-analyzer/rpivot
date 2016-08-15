@@ -37,7 +37,7 @@ class RelayServer:
         except socket.error as (code, msg):
             logger.error('Error binding socks proxy. {}'.format(msg))
             logger.error('Closing relay')
-            self.send_remote_cmd(self.socket_with_server, relay.CLOSE_RELAY)
+            #self.send_remote_cmd(self.socket_with_server, relay.CLOSE_RELAY)
             socket_with_server.close()
             raise
         self.socks_client_socket = None
@@ -82,7 +82,7 @@ class RelayServer:
                 return
             except KeyboardInterrupt:
                 logger.info('SIGINT received. Closing relay and exiting')
-                self.send_remote_cmd(self.socket_with_server, relay.CLOSE_RELAY)
+                #self.send_remote_cmd(self.socket_with_server, relay.CLOSE_RELAY)
                 self.shutdown()
                 sys.exit(1)
             for self.selected_input_socket in inputready:
@@ -147,6 +147,7 @@ class RelayServer:
         #logger.debug('Got data from socket {} with channel id {}'.format(sock, self.id_by_socket[sock]))
         try:
             data = sock.recv(relay.buffer_size)
+            #data = relay.recvall(sock, 8)
         except socket.error as (code, msg):
             logger.debug('Exception on reading socket {} with channel id {}'.format(sock, self.id_by_socket[sock]))
             logger.debug('Details: {}, {}'.format(errno.errorcode[code], msg))
@@ -258,7 +259,8 @@ class RelayServer:
 
     def handle_new_socks_connection(self, sock):
         try:
-            data = sock.recv(relay.buffer_size)
+            #data = sock.recv(relay.buffer_size)
+            data = relay.recvall(sock, 8)
         except socket.error as (code, msg):
             logger.debug('Error receiving socks header {} {}'.format(errno.errorcode[code], msg))
             raise relay.RelayError
