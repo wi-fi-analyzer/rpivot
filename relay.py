@@ -24,7 +24,7 @@ class RelayError(Exception):
 
 def recvall(sock, data_len):
     buf = ''
-    sock.setblocking(0)
+    #sock.setblocking(1)
     while True:
         buf += sock.recv(data_len - len(buf))
         if len(buf) == data_len:
