@@ -254,6 +254,9 @@ class SocksRelay:
         elif cmd == relay.FORWARD_CONNECTION_SUCCESS:
             cmd_buffer = cmd + pack('<H', args[0])
             tlv_header = pack('<HH', relay.COMMAND_CHANNEL, len(cmd_buffer))
+        elif cmd == relay.FORWARD_CONNECTION_FAILURE:
+            cmd_buffer = cmd + pack('<H', args[0])
+            tlv_header = pack('<HH', relay.COMMAND_CHANNEL, len(cmd_buffer))
         else:
             cmd_buffer = cmd
             tlv_header = pack('<HH', relay.COMMAND_CHANNEL, len(cmd_buffer))
