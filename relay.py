@@ -1,4 +1,5 @@
 import time
+import socket
 
 
 buffer_size = 4096

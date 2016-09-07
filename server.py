@@ -327,7 +327,7 @@ def run_server(host, port):
         except KeyboardInterrupt:
             logger.info('SIGINT received. Shutting down')
             sys.exit(1)
-        logger.info('New connection. Socket {}'.format(socket_with_remote_side))
+        logger.info('New connection from host {}, source port {}'.format(address[0], address[1]))
         serversock.close()
         try:
             server = RelayServer(cmd_options.proxy_ip, int(cmd_options.proxy_port), socket_with_remote_side)
