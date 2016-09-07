@@ -292,8 +292,8 @@ def main():
     global logger
 
     parser = argparse.ArgumentParser(description='Reverse socks client')
-    parser.add_argument('--server_ip', required=True, action="store", dest='server_ip')
-    parser.add_argument('--server_port', action="store", dest='server_port', default='9999')
+    parser.add_argument('--server-ip', required=True, action="store", dest='server_ip')
+    parser.add_argument('--server-port', action="store", dest='server_port', default='9999')
     parser.add_argument('--verbose', action="store_true", dest="verbose", default=False)
     parser.add_argument('--logfile', action="store", dest="logfile", default=None)
     cmd_options = parser.parse_args()
