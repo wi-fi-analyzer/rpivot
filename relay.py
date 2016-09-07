@@ -8,15 +8,27 @@ socks_server_reply_fail = '\x00\x5b\xff\xff\xff\xff\xff\xff'
 relay_timeout = 60
 
 COMMAND_CHANNEL = 0
+
 CHANNEL_CLOSE_CMD = '\xcc'
 CHANNEL_OPEN_CMD = '\xdd'
 FORWARD_CONNECTION_SUCCESS = '\xee'
 FORWARD_CONNECTION_FAILURE = '\xff'
 CLOSE_RELAY = '\xc4'
-PING_CMD = 'p'
+PING_CMD = '\x70'
+
+cmd_names = {
+    '\xcc': 'CHANNEL_CLOSE_CMD',
+    '\xdd': 'CHANNEL_OPEN_CMD',
+    '\xee': 'FORWARD_CONNECTION_SUCCESS',
+    '\xff': 'FORWARD_CONNECTION_FAILURE',
+    '\xc4': 'CLOSE_RELAY',
+    '\x70': 'PING_CMD'
+}
+
 
 class ClosedSocket(Exception):
     pass
+
 
 class RelayError(Exception):
     pass
@@ -24,7 +36,6 @@ class RelayError(Exception):
 
 def recvall(sock, data_len):
     buf = ''
-    #sock.setblocking(1)
     while True:
         buf += sock.recv(data_len - len(buf))
         if len(buf) == data_len:
@@ -32,7 +43,6 @@ def recvall(sock, data_len):
         time.sleep(delay)
     assert(data_len == len(buf))
     return buf
-
 
 
 def close_sockets(sockets):
