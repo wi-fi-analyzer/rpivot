@@ -256,7 +256,6 @@ class RelayServer:
             if data[-1] != '\x00':
                 logger.debug('Error receiving socks header: corrupted header')
                 raise relay.RelayError
-            #data = relay.recv_until_null(sock)
         except socket.error as (code, msg):
             logger.debug('Error receiving socks header {} {}'.format(errno.errorcode[code], msg))
             raise relay.RelayError
@@ -328,7 +327,7 @@ def run_server(host, port):
         except KeyboardInterrupt:
             logger.info('SIGINT received. Shutting down')
             sys.exit(1)
-        logger.debug('New connection. Socket {}'.format(socket_with_remote_side))
+        logger.info('New connection. Socket {}'.format(socket_with_remote_side))
         serversock.close()
         try:
             server = RelayServer(cmd_options.proxy_ip, int(cmd_options.proxy_port), socket_with_remote_side)
