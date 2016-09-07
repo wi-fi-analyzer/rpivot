@@ -33,6 +33,8 @@ def recvall(sock, data_len):
     assert(data_len == len(buf))
     return buf
 
+
+
 def close_sockets(sockets):
     for s in sockets:
         try:

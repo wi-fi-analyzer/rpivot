@@ -202,6 +202,9 @@ class SocksRelay:
             self.handle_remote_cmd(data)
         elif channel_id in self.channel:
             relay_to_sock = self.channel[channel_id]
+            logger.debug('Got data to relay from remote side. Channel id {}. Data length: {}'.format(channel_id, len(data)))
+            #logger.debug('Tlv header: {}'.format(tlv_header.encode('hex')))
+            logger.debug('Data contents: {}'.format(data.encode('hex')))
             self.relay(data, relay_to_sock)
         else:
                 logger.debug('Relay from socket {} with channel {} not possible. Channel does not exist'.format(sock, channel_id))
@@ -232,6 +235,9 @@ class SocksRelay:
         else:
             channel_id = self.id_by_socket[sock]
             tlv_header = pack('<HH', channel_id, len(data))
+            logger.debug('Got data to relay from app side. Channel id {}. Data length: {}'.format(channel_id, len(data)))
+            logger.debug('Preparing tlv header: {}'.format(tlv_header.encode('hex')))
+            logger.debug('Data contents: {}'.format(data.encode('hex')))
             self.relay(tlv_header + data, self.bc_sock)
 
     def close_forward_connection(self, sock):
@@ -292,7 +298,8 @@ class SocksRelay:
 
 
     def relay(self, data, to_socket):
-        logger.debug('Got data to relay. Data length: {}'.format(len(data)))
+        #logger.debug('Got data to relay. Data length: {}'.format(len(data)))
+        #logger.debug('Data contents: {}'.format(data.encode('hex')))
         if to_socket is None:
             return
 

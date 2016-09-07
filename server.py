@@ -138,6 +138,9 @@ class RelayServer:
             self.handle_remote_cmd(data)
         elif channel_id in self.channel:
             relay_to_sock = self.channel[channel_id]
+            logger.debug('Got data to relay from remote side. Channel id {}. Data length: {}'.format(channel_id, len(data)))
+            #logger.debug('Tlv header: {}'.format(tlv_header.encode('hex')))
+            logger.debug('Data contents: {}'.format(data.encode('hex')))
             self.relay(data, relay_to_sock)
         else:
             logger.debug('Relay from socket {} with channel {} not possible. Channel does not exist'.format(sock, channel_id))
@@ -160,6 +163,9 @@ class RelayServer:
         else:
             channel_id = self.id_by_socket[sock]
             tlv_header = pack('<HH', channel_id, len(data))
+            logger.debug('Got data to relay from app side. Channel id {}. Data length: {}'.format(channel_id, len(data)))
+            logger.debug('Preparint tlv header: {}'.format(tlv_header.encode('hex')))
+            logger.debug('Data contents: {}'.format(data.encode('hex')))
             self.relay(tlv_header + data, self.socket_with_server)
 
     def handle_remote_cmd(self, data):
@@ -260,7 +266,11 @@ class RelayServer:
     def handle_new_socks_connection(self, sock):
         try:
             #data = sock.recv(relay.buffer_size)
-            data = relay.recvall(sock, 8)
+            data = relay.recvall(sock, 9)
+            if data[-1] != '\x00':
+                logger.debug('Error receiving socks header: corrupted header')
+                raise relay.RelayError
+            #data = relay.recv_until_null(sock)
         except socket.error as (code, msg):
             logger.debug('Error receiving socks header {} {}'.format(errno.errorcode[code], msg))
             raise relay.RelayError
@@ -324,8 +334,9 @@ class RelayServer:
     '''
 
     def relay(self, data, to_socket):
-        logger.debug('Got data to relay to {}. Data length: {}'.format(to_socket, len(data)))
-        logger.debug('remote side socket at {}'.format(self.socket_with_server))
+        #logger.debug('Got data to relay to {}. Data length: {}'.format(to_socket, len(data)))
+        #logger.debug('Data contents: {}'.format(data.encode('hex')))
+        #logger.debug('remote side socket at {}'.format(self.socket_with_server))
         if to_socket is None:
             return
         try:
