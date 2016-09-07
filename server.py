@@ -348,10 +348,10 @@ def main():
     global cmd_options
 
     parser = argparse.ArgumentParser(description='Reverse socks server')
-    parser.add_argument('--server_ip', action="store", dest='server_ip', default='0.0.0.0')
-    parser.add_argument('--server_port', action="store", dest='server_port', default='9999')
-    parser.add_argument('--proxy_ip', action="store", dest='proxy_ip', default='127.0.0.1')
-    parser.add_argument('--proxy_port', action="store", dest='proxy_port', default='1080')
+    parser.add_argument('--server-ip', action="store", dest='server_ip', default='0.0.0.0')
+    parser.add_argument('--server-port', action="store", dest='server_port', default='9999')
+    parser.add_argument('--proxy-ip', action="store", dest='proxy_ip', default='127.0.0.1')
+    parser.add_argument('--proxy-port', action="store", dest='proxy_port', default='1080')
     parser.add_argument('--verbose', action="store_true", dest="verbose", default=False)
     parser.add_argument('--logfile', action="store", dest="logfile", default=None)
     cmd_options = parser.parse_args()
