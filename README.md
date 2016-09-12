@@ -27,3 +27,8 @@ python server.py --server-port 9999 --server-ip 0.0.0.0 --proxy-ip 127.0.0.1 --p
 Connect to the server:
 
 python client.py --server-ip <server_ip> --server-port 9999 
+
+Author
+------
+
+Artem Kondratenko https://twitter.com/artkond
