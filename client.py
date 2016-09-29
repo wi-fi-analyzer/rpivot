@@ -5,7 +5,7 @@ import sys
 import time
 from struct import pack, unpack
 import select
-import argparse
+import optparse
 import errno
 import relay
 import threading
@@ -52,7 +52,7 @@ class SocksRelay:
                 logger.debug('Remote side down. Exiting ping worker')
                 return
             if current_time - self.last_ping_time > relay.relay_timeout:
-                logger.info('No response from remote side for {} seconds. Restarting relay'.format(relay.relay_timeout))
+                logger.info('No response from remote side for {0} seconds. Restarting relay'.format(relay.relay_timeout))
                 self.bc_sock.close()
                 return
 
@@ -69,27 +69,27 @@ class SocksRelay:
 
             try:
                 time.sleep(relay.delay)
-                logger.debug("Active channels: {}. Pending Channels {}".format(self.channel.keys(), self.establishing_dict.values()))
+                logger.debug("Active channels: {0}. Pending Channels {1}".format(self.channel.keys(), self.establishing_dict.values()))
                 inputready, outputready, exceptready = select.select(self.input_list, self.establishing_dict.keys(), [], 15)
             except KeyboardInterrupt:
                 logger.info('SIGINT received. Closing relay and exiting')
                 self.send_remote_cmd(self.bc_sock, relay.CLOSE_RELAY)
                 self.shutdown()
             except select.error as (code, msg):
-                logger.debug('Select error on select. Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
+                logger.debug('Select error on select. Errno: {0} Msg: {1}'.format(errno.errorcode[code], msg))
                 self.shutdown()
             except socket.error as (code, msg):
-                logger.debug('Socket error on select. Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
+                logger.debug('Socket error on select. Errno: {0} Msg: {1}'.format(errno.errorcode[code], msg))
                 self.shutdown()
 
             for sock in outputready:
                 channel_id = self.establishing_dict[sock]
-                logger.debug('Establishing connection with channel id {}'.format(channel_id))
+                logger.debug('Establishing connection with channel id {0}'.format(channel_id))
                 try:
                     sock.recv(0)
                 except socket.error as (code, err_msg):
                     if code == errno.ECONNREFUSED or code == errno.ETIMEDOUT:
-                        logger.debug('Connection {}'.format(errno.errorcode[code]))
+                        logger.debug('Connection {0}'.format(errno.errorcode[code]))
 
                         if sock in inputready:
                             inputready.remove(sock)
@@ -100,13 +100,13 @@ class SocksRelay:
                         sock.close()
                         continue
                     elif code == errno.EAGAIN:
-                        logger.debug('Recv(0) return errno.EAGAIN for socket {} on channel {}. Connection established.'.format(sock, channel_id))
+                        logger.debug('Recv(0) return errno.EAGAIN for socket {0} on channel {1}. Connection established.'.format(sock, channel_id))
                     elif code == 10035:
                         logger.debug('Recv(0) raised windows-specific exception 10035. Connection established.')
                     else:
                         raise
 
-                logger.debug('Connection established on channel {}'.format(channel_id))
+                logger.debug('Connection established on channel {0}'.format(channel_id))
                 sock.setblocking(1)
 
                 self.send_remote_cmd(self.bc_sock, relay.FORWARD_CONNECTION_SUCCESS, self.establishing_dict[sock])
@@ -127,27 +127,27 @@ class SocksRelay:
 
     def handle_remote_cmd(self, data):
         cmd = data[0]
-        logger.debug('Received cmd data from remote side. Cmd: {}'.format(relay.cmd_names[cmd]))
+        logger.debug('Received cmd data from remote side. Cmd: {0}'.format(relay.cmd_names[cmd]))
         if cmd == relay.CHANNEL_CLOSE_CMD:
             channel_id = unpack('<H', data[1:3])[0]
-            logger.debug('Channel close request with id: {}'.format(channel_id))
+            logger.debug('Channel close request with id: {0}'.format(channel_id))
             establishing_sock = key_by_value(self.establishing_dict, channel_id)
             if establishing_sock is not None:
-                logger.debug('Closing establishing socket with id: {}'.format(channel_id))
+                logger.debug('Closing establishing socket with id: {0}'.format(channel_id))
                 del self.establishing_dict[establishing_sock]
             elif channel_id not in self.channel:
-                logger.debug('Channel {} non existent'.format(channel_id))
+                logger.debug('Channel {0} non existent'.format(channel_id))
                 return
             else:
                 sock_to_close = self.channel[channel_id]
                 self.unset_channel(channel_id)
-                logger.debug('Closing socket with id: {}'.format(channel_id))
+                logger.debug('Closing socket with id: {0}'.format(channel_id))
                 sock_to_close.close()
                 self.input_list.remove(sock_to_close)
         elif cmd == relay.CHANNEL_OPEN_CMD:
             channel_id, packed_ip, port = unpack('<HIH', data[1:9])
             ip = socket.inet_ntoa(data[3:7])
-            logger.debug('Got new channel request with id {} . Opening new forward connection to host {} port {}'.format(channel_id, ip, port))
+            logger.debug('Got new channel request with id {0} . Opening new forward connection to host {1} port {2}'.format(channel_id, ip, port))
             self.establish_forward_socket(channel_id, ip, port)
         elif cmd == relay.CLOSE_RELAY:
             logger.info('Got command to close relay. Closing socket and exiting.')
@@ -156,7 +156,7 @@ class SocksRelay:
             self.last_ping_time = time.time()
             self.send_remote_cmd(self.bc_sock, relay.PING_CMD)
         else:
-            logger.debug('Received unknown cmd: {}'.format(cmd))
+            logger.debug('Received unknown cmd: {0}'.format(cmd))
 
     def get_channel_data(self, sock):
         try:
@@ -165,7 +165,7 @@ class SocksRelay:
             data = relay.recvall(sock, tlv_data_len)
         except socket.error as (code, msg):
             logger.debug('Exception on receiving tlv message from remote side. Exiting')
-            logger.debug('Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
+            logger.debug('Errno: {0} Msg: {1}'.format(errno.errorcode[code], msg))
             raise relay.RelayError
 
         return channel_id, data
@@ -182,11 +182,11 @@ class SocksRelay:
             self.handle_remote_cmd(data)
         elif channel_id in self.channel:
             relay_to_sock = self.channel[channel_id]
-            logger.debug('Got data to relay from remote side. Channel id {}. Data length: {}'.format(channel_id, len(data)))
-            logger.debug('Data contents: {}'.format(data.encode('hex')))
+            logger.debug('Got data to relay from remote side. Channel id {0}. Data length: {1}'.format(channel_id, len(data)))
+            logger.debug('Data contents: {0}'.format(data.encode('hex')))
             self.relay(data, relay_to_sock)
         else:
-                logger.debug('Relay from socket {} with channel {} not possible. Channel does not exist'.format(sock, channel_id))
+                logger.debug('Relay from socket {0} with channel {1} not possible. Channel does not exist'.format(sock, channel_id))
                 return
 
     def close_remote_connection(self, sock):
@@ -195,16 +195,16 @@ class SocksRelay:
 
     def manage_forward_socket(self, sock):
         if sock not in self.id_by_socket:
-            logger.debug('Channel corresponding to remote socket {} already closed. Closing forward socket'.format(sock))
+            logger.debug('Channel corresponding to remote socket {0} already closed. Closing forward socket'.format(sock))
             return
         channel_id = self.id_by_socket[sock]
-        #logger.debug('Readable socket {} with channel id {}'.format(sock, channel_id))
+        #logger.debug('Readable socket {0} with channel id {1}'.format(sock, channel_id))
         try:
             data = sock.recv(relay.buffer_size)
         except socket.error as (code, msg):
-            logger.debug('Exception on receiving data from socket {} with channel id {}'.format(sock, channel_id))
-            logger.debug('Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
-            logger.debug('Closing socket {} with channel id {}'.format(sock, channel_id))
+            logger.debug('Exception on receiving data from socket {0} with channel id {1}'.format(sock, channel_id))
+            logger.debug('Errno: {0} Msg: {1}'.format(errno.errorcode[code], msg))
+            logger.debug('Closing socket {0} with channel id {1}'.format(sock, channel_id))
             self.close_forward_connection(sock)
             return
         data_len = len(data)
@@ -214,15 +214,15 @@ class SocksRelay:
         else:
             channel_id = self.id_by_socket[sock]
             tlv_header = pack('<HH', channel_id, len(data))
-            logger.debug('Got data to relay from app side. Channel id {}. Data length: {}'.format(channel_id, len(data)))
-            logger.debug('Preparing tlv header: {}'.format(tlv_header.encode('hex')))
-            logger.debug('Data contents: {}'.format(data.encode('hex')))
+            logger.debug('Got data to relay from app side. Channel id {0}. Data length: {1}'.format(channel_id, len(data)))
+            logger.debug('Preparing tlv header: {0}'.format(tlv_header.encode('hex')))
+            logger.debug('Data contents: {0}'.format(data.encode('hex')))
             self.relay(tlv_header + data, self.bc_sock)
 
     def close_forward_connection(self, sock):
         channel_id = self.id_by_socket[sock]
-        logger.debug('Closing forward socket {} with id {}'.format(sock, channel_id))
-        logger.debug('Current remote side socket: {}'.format(self.bc_sock))
+        logger.debug('Closing forward socket {0} with id {1}'.format(sock, channel_id))
+        logger.debug('Current remote side socket: {0}'.format(self.bc_sock))
         logger.debug('Notifying remote side')
         self.unset_channel(channel_id)
         self.input_list.remove(sock)
@@ -230,7 +230,7 @@ class SocksRelay:
         self.send_remote_cmd(self.bc_sock, relay.CHANNEL_CLOSE_CMD, channel_id)
 
     def send_remote_cmd(self, sock, cmd, *args):
-        logger.debug('Sending cmd to remote side. Cmd: {}'.format(relay.cmd_names[cmd]))
+        logger.debug('Sending cmd to remote side. Cmd: {0}'.format(relay.cmd_names[cmd]))
         if cmd == relay.CHANNEL_CLOSE_CMD:
             cmd_buffer = cmd + pack('<H', args[0])
             tlv_header = pack('<HH', relay.COMMAND_CHANNEL, len(cmd_buffer))
@@ -246,7 +246,7 @@ class SocksRelay:
         try:
             sock.send(tlv_header + cmd_buffer)
         except socket.error as (code, cmd):
-            logger.error('Socket error on sending command to remote side. Code {}. Msg {}'.format(code, cmd))
+            logger.error('Socket error on sending command to remote side. Code {0}. Msg {1}'.format(code, cmd))
 
     def set_channel(self, sock, channel_id):
         self.channel[channel_id] = sock
@@ -263,10 +263,10 @@ class SocksRelay:
             sock.setblocking(0)
             sock.connect_ex((host, port))
         except socket.error as (code, msg):
-            logger.debug("Caught exception socket.error during establishing forward connection. Code {}. Msg {}".format(code, msg))
+            logger.debug("Caught exception socket.error during establishing forward connection. Code {0}. Msg {1}".format(code, msg))
             self.send_remote_cmd(self.bc_sock, relay.FORWARD_CONNECTION_FAILURE, channel_id)
             return
-        logger.debug('Adding new pending forward connection with channel id {} and socket {}'.format(channel_id, sock))
+        logger.debug('Adding new pending forward connection with channel id {0} and socket {1}'.format(channel_id, sock))
         self.establishing_dict[sock] = channel_id
 
     def relay(self, data, to_socket):
@@ -275,8 +275,8 @@ class SocksRelay:
         try:
             to_socket.send(data)
         except socket.error as (code, msg):
-            logger.debug('Exception on relaying data to socket {}'.format(to_socket))
-            logger.debug('Errno: {} Msg: {}'.format(errno.errorcode[code], msg))
+            logger.debug('Exception on relaying data to socket {0}'.format(to_socket))
+            logger.debug('Errno: {0} Msg: {1}'.format(errno.errorcode[code], msg))
             if to_socket == self.bc_sock:
                 raise relay.RelayError
             else:
@@ -291,13 +291,15 @@ class SocksRelay:
 def main():
     global logger
 
-    parser = argparse.ArgumentParser(description='Reverse socks client')
-    parser.add_argument('--server-ip', required=True, action="store", dest='server_ip')
-    parser.add_argument('--server-port', action="store", dest='server_port', default='9999')
-    parser.add_argument('--verbose', action="store_true", dest="verbose", default=False)
-    parser.add_argument('--logfile', action="store", dest="logfile", default=None)
-    cmd_options = parser.parse_args()
-
+    parser = optparse.OptionParser(description='Reverse socks client')
+    parser.add_option('--server-ip', action="store", dest='server_ip')
+    parser.add_option('--server-port', action="store", dest='server_port', default='9999')
+    parser.add_option('--verbose', action="store_true", dest="verbose", default=False)
+    parser.add_option('--logfile', action="store", dest="logfile", default=None)
+    cmd_options = parser.parse_args()[0]
+    if cmd_options.server_ip is None:
+        print 'Server IP required'
+        sys.exit()
     logger = logging.getLogger('root')
     logger.setLevel(logging.DEBUG)
 
@@ -313,22 +315,28 @@ def main():
     logger.addHandler(ch)
     logger.addHandler(ch)
     while True:
-        logger.info('Backconnecting to server {} port {}'.format(cmd_options.server_ip, cmd_options.server_port))
+        logger.info('Backconnecting to server {0} port {1}'.format(cmd_options.server_ip, cmd_options.server_port))
         backconnect_host = cmd_options.server_ip
         backconnect_port = int(cmd_options.server_port)
-        bc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        bc_sock =  None 
         while True:
-
             try:
+                bc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 bc_sock.connect((backconnect_host, backconnect_port))
                 break
             except socket.error as (code, msg):
-                logger.info('Unable to connect to {} port: {}'.format(cmd_options.server_ip, msg))
+                logger.info('Unable to connect to {0} port: {1}'.format(cmd_options.server_ip, msg))
                 logger.info('Retrying')
                 time.sleep(5)
 
         socks_relayer = SocksRelay(bc_sock)
-        socks_relayer.run()
+        try:
+            socks_relayer.run()
+        except socket.error as (code, msg):
+            logger.debug('Exception in socks_relayer.run(). Restarting relay')
+            logger.debug('Errno: {0} Msg: {1}'.format(errno.errorcode[code], msg))
+            bc_sock.close()
+            continue
         time.sleep(10)
 
 if __name__ == '__main__':
